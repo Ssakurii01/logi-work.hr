@@ -5,8 +5,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import {
   Activity, AlertTriangle, ArrowDownToLine, Bell, BriefcaseBusiness, Building2,
-  CalendarClock, CheckCircle2, ChevronDown, CircleGauge, ClipboardCheck, Clock3,
-  FileText, Filter, LayoutDashboard, Loader2, LogOut, Menu, MessageSquareText,
+  BookTemplate, CalendarClock, Check, CheckCircle2, ChevronDown, CircleGauge, ClipboardCheck, Clock3,
+  Coffee, Columns3, FileText, Filter, LayoutDashboard, List, Loader2, LogOut, Menu, MessageSquareText,
   PackageCheck, Paperclip, Plus, RefreshCw, Search, Settings,
   ShieldCheck, TimerReset, Truck, Upload, UserPlus, Users, X, XCircle,
 } from "lucide-react";
@@ -132,11 +132,10 @@ function Portal({ client, session, profile, setProfile }: { client: SupabaseClie
   const [mobileOpen, setMobileOpen] = useState(false);
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [data, setData] = useState<{ employees: Row[]; attendance: Row[]; tasks: Row[]; assignments: Row[]; submissions: Row[]; corrections: Row[]; departments: Row[]; schedules: Row[]; notifications: Row[] }>({ employees: [], attendance: [], tasks: [], assignments: [], submissions: [], corrections: [], departments: [], schedules: [], notifications: [] });
+  const [data, setData] = useState<{ employees: Row[]; attendance: Row[]; breaks: Row[]; tasks: Row[]; templates: Row[]; assignments: Row[]; assignmentChecklist: Row[]; submissions: Row[]; corrections: Row[]; departments: Row[]; schedules: Row[]; notifications: Row[] }>({ employees: [], attendance: [], breaks: [], tasks: [], templates: [], assignments: [], assignmentChecklist: [], submissions: [], corrections: [], departments: [], schedules: [], notifications: [] });
 
   const loadData = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true); else setBusy(true);
-    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
     const common = [
       client.from("departments").select("*").order("name"),
       client.from("work_schedules").select("*").order("name"),
@@ -144,25 +143,31 @@ function Portal({ client, session, profile, setProfile }: { client: SupabaseClie
     ];
     const scoped = isAdmin ? [
       client.from("profiles").select("*, departments(name), work_schedules(name,start_time,end_time,grace_minutes,timezone)").order("full_name"),
-      client.from("attendance_records").select("*, profiles!attendance_records_employee_id_fkey(full_name,job_title)").gte("work_date", monthStart.toISOString().slice(0, 10)).order("work_date", { ascending: false }),
-      client.from("tasks").select("*, task_attachments(*)").order("created_at", { ascending: false }),
-      client.from("task_assignments").select("*, profiles!task_assignments_employee_id_fkey(full_name,job_title), tasks(*)").order("updated_at", { ascending: false }),
+      client.from("attendance_records").select("*, profiles!attendance_records_employee_id_fkey(full_name,job_title)").order("work_date", { ascending: false }),
+      client.from("attendance_breaks").select("*").order("started_at", { ascending: false }),
+      client.from("tasks").select("*, task_attachments(*), task_checklist_items(*)").order("created_at", { ascending: false }),
+      client.from("task_assignments").select("*, profiles!task_assignments_employee_id_fkey(full_name,job_title), tasks(*, task_attachments(*), task_checklist_items(*))").order("updated_at", { ascending: false }),
+      client.from("assignment_checklist_items").select("*"),
       client.from("task_submissions").select("*, submission_attachments(*), task_reviews(*), task_assignments(*, tasks(*), profiles!task_assignments_employee_id_fkey(full_name,job_title))").order("submitted_at", { ascending: false }),
       client.from("attendance_corrections").select("*, profiles!attendance_corrections_employee_id_fkey(full_name,job_title)").order("created_at", { ascending: false }),
+      client.from("task_templates").select("*").eq("active", true).order("title"),
     ] : [
       Promise.resolve({ data: [profile], error: null }),
-      client.from("attendance_records").select("*").gte("work_date", monthStart.toISOString().slice(0, 10)).order("work_date", { ascending: false }),
+      client.from("attendance_records").select("*").order("work_date", { ascending: false }),
+      client.from("attendance_breaks").select("*").order("started_at", { ascending: false }),
       Promise.resolve({ data: [], error: null }),
-      client.from("task_assignments").select("*, tasks(*, task_attachments(*))").order("updated_at", { ascending: false }),
+      client.from("task_assignments").select("*, tasks(*, task_attachments(*), task_checklist_items(*))").order("updated_at", { ascending: false }),
+      client.from("assignment_checklist_items").select("*"),
       client.from("task_submissions").select("*, submission_attachments(*), task_reviews(*), task_assignments!inner(employee_id)").order("submitted_at", { ascending: false }),
       client.from("attendance_corrections").select("*").order("created_at", { ascending: false }),
+      Promise.resolve({ data: [], error: null }),
     ];
     const results = await Promise.all([...common, ...scoped] as any);
     const failure = results.find((result: any) => result.error)?.error;
     if (failure) toast.error(failure.message);
     setData({
       departments: results[0].data ?? [], schedules: results[1].data ?? [], notifications: results[2].data ?? [],
-      employees: results[3].data ?? [], attendance: results[4].data ?? [], tasks: results[5].data ?? [], assignments: results[6].data ?? [], submissions: results[7].data ?? [], corrections: results[8].data ?? [],
+      employees: results[3].data ?? [], attendance: results[4].data ?? [], breaks: results[5].data ?? [], tasks: results[6].data ?? [], assignments: results[7].data ?? [], assignmentChecklist: results[8].data ?? [], submissions: results[9].data ?? [], corrections: results[10].data ?? [], templates: results[11].data ?? [],
     });
     setBusy(false); setRefreshing(false);
   }, [client, isAdmin, profile]);
@@ -172,6 +177,8 @@ function Portal({ client, session, profile, setProfile }: { client: SupabaseClie
     const channel = client.channel(`workforce-${session.user.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${session.user.id}` }, () => loadData(true))
       .on("postgres_changes", { event: "*", schema: "public", table: "task_assignments" }, () => loadData(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "attendance_breaks" }, () => loadData(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "assignment_checklist_items" }, () => loadData(true))
       .subscribe();
     return () => { client.removeChannel(channel); };
   }, [client, loadData, session.user.id]);
@@ -227,7 +234,7 @@ function Portal({ client, session, profile, setProfile }: { client: SupabaseClie
 
 type Context = {
   client: SupabaseClient; session: Session; profile: Row; isAdmin: boolean;
-  data: { employees: Row[]; attendance: Row[]; tasks: Row[]; assignments: Row[]; submissions: Row[]; corrections: Row[]; departments: Row[]; schedules: Row[]; notifications: Row[] };
+  data: { employees: Row[]; attendance: Row[]; breaks: Row[]; tasks: Row[]; templates: Row[]; assignments: Row[]; assignmentChecklist: Row[]; submissions: Row[]; corrections: Row[]; departments: Row[]; schedules: Row[]; notifications: Row[] };
   reload: () => void; setProfile: (profile: Row) => void;
 };
 
@@ -271,13 +278,13 @@ function Dashboard(context: Context) {
   return <>
     <section className="page-heading">
       <div><p className="eyebrow">{new Intl.DateTimeFormat("en-US", { timeZone: TASHKENT_TIME_ZONE, weekday: "long", month: "long", day: "numeric" }).format(new Date())}</p><h2>{isAdmin ? "Good day, " : "Welcome back, "}{profile.full_name.split(" ")[0]}.</h2><p>{isAdmin ? "Here’s the latest across your workforce." : "Here’s what needs your attention today."}</p></div>
-      {!isAdmin && <AttendanceButtons client={client} attendance={ownToday} reload={reload} compact />}
+      {!isAdmin && <AttendanceButtons client={client} attendance={ownToday} breaks={data.breaks.filter((item) => item.attendance_id === ownToday?.id)} reload={reload} compact />}
     </section>
     <section className={`stat-grid ${isAdmin ? "six" : "four"}`}>{(isAdmin ? adminStats : employeeStats).map((stat) => <StatCard key={stat.label} {...stat} />)}</section>
     <section className="dashboard-grid">
       <div className="card span-2">
         <CardHeader title={isAdmin ? "Today’s attendance" : "Priority tasks"} eyebrow={isAdmin ? "LIVE OPERATIONS" : "YOUR QUEUE"} />
-        {isAdmin ? <AttendanceTable rows={todayAttendance} employees={data.employees} compact /> : <TaskList rows={assignments.filter((a) => a.status !== "completed").slice(0, 5)} employee />}
+        {isAdmin ? <AttendanceTable rows={todayAttendance} employees={data.employees} breaks={data.breaks} compact /> : <TaskList rows={assignments.filter((a) => a.status !== "completed").slice(0, 5)} employee />}
       </div>
       <div className="card">
         <CardHeader title={isAdmin ? "Task flow" : "Today’s time"} eyebrow={isAdmin ? "DELIVERY STATUS" : "ATTENDANCE"} />
@@ -311,7 +318,7 @@ function Attendance(context: Context) {
         {isAdmin && <ExportButtons rows={attendanceExportRows(rows, data.employees)} filename="attendance-report" />}
       </div>
     </section>
-    {!isAdmin && <div className="attendance-hero card"><div><span className={`status-dot ${ownToday?.state ?? "not-started"}`} /><p>CURRENT STATUS</p><h3>{ownToday?.state === "working" ? "Working" : ownToday?.state === "checked_out" ? "Checked out" : "Not checked in"}</h3><span>{ownToday ? `${formatTime(ownToday.clock_in)} — ${formatTime(ownToday.clock_out)}` : "Start your workday when you arrive at the office."}</span></div><AttendanceButtons client={client} attendance={ownToday} reload={reload} /></div>}
+    {!isAdmin && <div className="attendance-hero card"><div><span className={`status-dot ${ownToday?.state ?? "not-started"}`} /><p>CURRENT STATUS</p><h3>{data.breaks.some((item) => item.attendance_id === ownToday?.id && !item.ended_at) ? "On break" : ownToday?.state === "working" ? "Working" : ownToday?.state === "checked_out" ? "Checked out" : "Not checked in"}</h3><span>{ownToday ? `${formatTime(ownToday.clock_in)} — ${formatTime(ownToday.clock_out)} · ${ownToday.break_minutes ?? 0}m breaks` : "Start your workday when you arrive at the office."}</span></div><AttendanceButtons client={client} attendance={ownToday} breaks={data.breaks.filter((item) => item.attendance_id === ownToday?.id)} reload={reload} /></div>}
     <section className="stat-grid four compact-stats">
       <StatCard label={isAdmin ? "Records this month" : "Days worked"} value={rows.length} icon={CalendarClock} tone="blue" />
       <StatCard label="Total hours" value={formatDuration(totalMinutes)} icon={Clock3} tone="green" />
@@ -320,7 +327,7 @@ function Attendance(context: Context) {
     </section>
     <section className="card table-card">
       <div className="table-toolbar"><div><h3>{isAdmin ? "Employee attendance" : "Attendance history"}</h3><p>{rows.length} records this month</p></div><div className="heading-actions">{isAdmin && <SearchBox value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Search employees…" />}<Select value={sort} onChange={setSort} options={[["newest","Newest first"],["name","Employee name"],["hours","Most hours"]]} /></div></div>
-      <AttendanceTable rows={pageRows} employees={data.employees} /><TablePager total={rows.length} page={page} pageSize={pageSize} onPage={setPage} />
+      <AttendanceTable rows={pageRows} employees={data.employees} breaks={data.breaks} /><TablePager total={rows.length} page={page} pageSize={pageSize} onPage={setPage} />
     </section>
     {isAdmin && data.corrections.some((item) => item.status === "pending") && <section className="card"><CardHeader title="Correction requests" eyebrow="ADMIN REVIEW" /><CorrectionRequests rows={data.corrections} client={client} reload={reload} /></section>}
     {correctionOpen && <CorrectionModal client={client} profile={profile} attendance={ownToday} onClose={() => setCorrectionOpen(false)} onSaved={() => { setCorrectionOpen(false); reload(); }} />}
@@ -337,6 +344,7 @@ function Tasks(context: Context) {
   const [deadline, setDeadline] = useState("all");
   const [sort, setSort] = useState("deadline");
   const [page, setPage] = useState(1);
+  const [display, setDisplay] = useState<"list" | "board">("list");
   const today = new Date();
   const filteredRows = data.assignments.filter((assignment) => {
     const task = assignment.tasks ?? data.tasks.find((item) => item.id === assignment.task_id);
@@ -356,12 +364,13 @@ function Tasks(context: Context) {
       <StatCard label="Awaiting review" value={data.assignments.filter((a) => a.status === "submitted").length} icon={ClipboardCheck} tone="violet" />
       <StatCard label="Completed" value={data.assignments.filter((a) => a.status === "completed").length} icon={PackageCheck} tone="green" />
     </section>
+    {isAdmin && <WorkloadStrip assignments={data.assignments} employees={data.employees} />}
     <section className="card table-card">
-      <div className="table-toolbar filters"><SearchBox value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Search tasks…" /><Select value={status} onChange={(value) => { setStatus(value); setPage(1); }} options={[["all","All statuses"],["todo","To do"],["in_progress","In progress"],["submitted","Submitted"],["completed","Completed"]]} /><Select value={priority} onChange={(value) => { setPriority(value); setPage(1); }} options={[["all","All priorities"],["low","Low"],["medium","Medium"],["high","High"],["urgent","Urgent"]]} /><Select value={deadline} onChange={(value) => { setDeadline(value); setPage(1); }} options={[["all","Any deadline"],["week","Due this week"],["overdue","Overdue"]]} /><Select value={sort} onChange={setSort} options={[["deadline","Deadline first"],["priority","Highest priority"],["updated","Recently updated"]]} /></div>
-      <TaskTable rows={pageRows} isAdmin={isAdmin} onOpen={setSelected} /><TablePager total={rows.length} page={page} pageSize={pageSize} onPage={setPage} />
+      <div className="table-toolbar filters"><SearchBox value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Search tasks…" /><Select value={status} onChange={(value) => { setStatus(value); setPage(1); }} options={[["all","All statuses"],["todo","To do"],["in_progress","In progress"],["submitted","Submitted"],["completed","Completed"]]} /><Select value={priority} onChange={(value) => { setPriority(value); setPage(1); }} options={[["all","All priorities"],["low","Low"],["medium","Medium"],["high","High"],["urgent","Urgent"]]} /><Select value={deadline} onChange={(value) => { setDeadline(value); setPage(1); }} options={[["all","Any deadline"],["week","Due this week"],["overdue","Overdue"]]} /><Select value={sort} onChange={setSort} options={[["deadline","Deadline first"],["priority","Highest priority"],["updated","Recently updated"]]} /><div className="view-switch" aria-label="Task display"><button className={display === "list" ? "active" : ""} onClick={() => setDisplay("list")} aria-label="List view"><List size={16} /></button><button className={display === "board" ? "active" : ""} onClick={() => setDisplay("board")} aria-label="Board view"><Columns3 size={16} /></button></div></div>
+      {display === "list" ? <><TaskTable rows={pageRows} isAdmin={isAdmin} onOpen={setSelected} /><TablePager total={rows.length} page={page} pageSize={pageSize} onPage={setPage} /></> : <TaskBoard rows={rows} isAdmin={isAdmin} onOpen={setSelected} />}
     </section>
-    {createOpen && <CreateTaskModal client={client} employees={data.employees} onClose={() => setCreateOpen(false)} onSaved={() => { setCreateOpen(false); reload(); }} />}
-    {selected && <TaskDetailModal client={client} session={session} assignment={selected} isAdmin={isAdmin} submissions={data.submissions.filter((submission) => submission.assignment_id === selected.id)} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); reload(); }} />}
+    {createOpen && <CreateTaskModal client={client} employees={data.employees} templates={data.templates} onClose={() => setCreateOpen(false)} onSaved={() => { setCreateOpen(false); reload(); }} />}
+    {selected && <TaskDetailModal client={client} session={session} assignment={selected} isAdmin={isAdmin} checklistState={data.assignmentChecklist.filter((item) => item.assignment_id === selected.id)} submissions={data.submissions.filter((submission) => submission.assignment_id === selected.id)} onClose={() => setSelected(null)} onRefresh={reload} onSaved={() => { setSelected(null); reload(); }} />}
   </>;
 }
 
@@ -405,16 +414,25 @@ function Reports(context: Context) {
   const [period, setPeriod] = useState("monthly");
   const now = new Date();
   const cutoff = new Date(now);
-  cutoff.setDate(now.getDate() - (period === "daily" ? 1 : period === "weekly" ? 7 : 31));
-  const attendance = data.attendance.filter((row) => new Date(`${row.work_date}T00:00:00`) >= cutoff);
-  const assignments = data.assignments.filter((row) => new Date(row.created_at) >= cutoff || (row.completed_at && new Date(row.completed_at) >= cutoff));
-  const completed = assignments.filter((row) => row.status === "completed");
+  const periodDays = period === "daily" ? 1 : period === "weekly" ? 7 : 31;
+  cutoff.setDate(now.getDate() - periodDays);
+  const inPeriod = (value?: string) => Boolean(value && new Date(value) >= cutoff && new Date(value) <= now);
+  const attendance = data.attendance.filter((row) => inPeriod(`${row.work_date}T23:59:59+05:00`));
+  const completed = data.assignments.filter((row) => inPeriod(row.completed_at));
   const onTime = completed.filter((row) => new Date(row.completed_at) <= new Date(row.tasks?.deadline));
-  const rejected = data.submissions.filter((submission) => submission.task_reviews?.some((review: Row) => review.decision !== "approved") && new Date(submission.submitted_at) >= cutoff);
+  const due = data.assignments.filter((row) => inPeriod(row.tasks?.deadline));
+  const overdue = due.filter((row) => row.status !== "completed" && new Date(row.tasks?.deadline) < now);
+  const rejected = data.submissions.filter((submission) => submission.task_reviews?.some((review: Row) => review.decision !== "approved") && inPeriod(submission.submitted_at));
   const employeePerformance = data.employees.filter((employee) => employee.role === "employee").map((employee) => {
     const employeeTasks = data.assignments.filter((item) => item.employee_id === employee.user_id);
-    const done = employeeTasks.filter((item) => item.status === "completed");
-    return { Employee: employee.full_name, Department: employee.departments?.name ?? "Unassigned", Assigned: employeeTasks.length, Completed: done.length, "On time": done.filter((item) => new Date(item.completed_at) <= new Date(item.tasks?.deadline)).length, "Working hours": Number((data.attendance.filter((item) => item.employee_id === employee.user_id).reduce((sum, item) => sum + (item.total_minutes ?? 0), 0) / 60).toFixed(1)), "Late arrivals": data.attendance.filter((item) => item.employee_id === employee.user_id && item.late_minutes > 0).length };
+    const assigned = employeeTasks.filter((item) => inPeriod(item.created_at));
+    const employeeDue = employeeTasks.filter((item) => inPeriod(item.tasks?.deadline));
+    const dueCompleted = employeeDue.filter((item) => item.status === "completed");
+    const done = employeeTasks.filter((item) => inPeriod(item.completed_at));
+    const doneOnTime = done.filter((item) => new Date(item.completed_at) <= new Date(item.tasks?.deadline));
+    const employeeAttendance = attendance.filter((item) => item.employee_id === employee.user_id);
+    const revisions = rejected.filter((submission) => submission.task_assignments?.employee_id === employee.user_id);
+    return { Employee: employee.full_name, Department: employee.departments?.name ?? "Unassigned", Assigned: assigned.length, Due: employeeDue.length, Completed: done.length, "Completion rate": employeeDue.length ? `${Math.round(dueCompleted.length / employeeDue.length * 100)}%` : "—", "On-time rate": done.length ? `${Math.round(doneOnTime.length / done.length * 100)}%` : "—", Overdue: employeeDue.filter((item) => item.status !== "completed" && new Date(item.tasks?.deadline) < now).length, Revisions: revisions.length, "Working hours": Number((employeeAttendance.reduce((sum, item) => sum + (item.total_minutes ?? 0), 0) / 60).toFixed(1)), "Late arrivals": employeeAttendance.filter((item) => item.late_minutes > 0).length, "Missed clock-outs": employeeAttendance.filter((item) => item.work_date < localDateKey() && !item.clock_out).length };
   });
 
   return <>
@@ -424,8 +442,9 @@ function Reports(context: Context) {
       <StatCard label="Hours recorded" value={formatDuration(attendance.reduce((sum, row) => sum + (row.total_minutes ?? 0), 0))} icon={Clock3} tone="blue" />
       <StatCard label="Tasks completed" value={completed.length} icon={CheckCircle2} tone="green" />
       <StatCard label="Completed on time" value={onTime.length} icon={PackageCheck} tone="violet" />
-      <StatCard label="Revisions requested" value={rejected.length} icon={RefreshCw} tone="amber" />
+      <StatCard label="Overdue / revisions" value={`${overdue.length} / ${rejected.length}`} icon={RefreshCw} tone="amber" />
     </section>
+    <section className="method-card"><div><CircleGauge size={20} /><div><b>How this report is calculated</b><p>Rolling {periodDays}-day window ending now. Completion rate = tasks due in the window that are completed ÷ tasks due. On-time rate = completion events in the window finished by their deadline ÷ all completion events. A dash means there is no valid denominator.</p></div></div><span>{cutoff.toLocaleDateString()} — {now.toLocaleDateString()}</span></section>
     <section className="card table-card"><div className="table-toolbar"><div><h3>Employee performance context</h3><p>Workload, outcomes, and attendance shown side by side</p></div></div><div className="table-scroll"><table><thead><tr>{Object.keys(employeePerformance[0] ?? { Employee: "" }).map((key) => <th key={key}>{key}</th>)}</tr></thead><tbody>{employeePerformance.map((row) => <tr key={row.Employee}>{Object.values(row).map((value, index) => <td key={index}>{String(value)}</td>)}</tr>)}</tbody></table>{!employeePerformance.length && <EmptyState icon={CircleGauge} title="No report data yet" text="Reports populate as employees record attendance and complete tasks." />}</div></section>
   </>;
 }
@@ -453,27 +472,51 @@ function SettingsView(context: Context) {
   return <><section className="page-heading"><div><p className="eyebrow">ACCOUNT & SYSTEM</p><h2>Settings</h2><p>Review your profile and security preferences.</p></div></section><div className="settings-grid"><section className="card"><CardHeader title="Profile" eyebrow="ACCOUNT" /><div className="profile-summary"><Avatar name={profile.full_name} /><div><h3>{profile.full_name}</h3><p>{profile.job_title}</p><span>{profile.email}</span></div></div><div className="detail-list"><div><span>Role</span><b>{profile.role === "admin" ? "Administrator / Manager" : "Employee"}</b></div><div><span>Department</span><b>{profile.departments?.name ?? "Not assigned"}</b></div><div><span>Work schedule</span><b>{profile.work_schedules?.name ?? "Not assigned"}</b></div><div><span>Timezone</span><b>Asia/Tashkent (UTC+5)</b></div></div></section><section className="card"><CardHeader title="Security" eyebrow="PASSWORD" /><form onSubmit={updatePassword} className="stack-form"><label className="field"><span>New password</span><input type="password" minLength={10} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 10 characters" /></label><button className="button primary" disabled={busy}>{busy ? <Loader2 className="spin" /> : <ShieldCheck size={17} />} Update password</button></form><div className="security-footnote"><ShieldCheck size={18} /><span>Authentication is handled by Supabase. Your password is never stored by FleetOps.</span></div></section></div></>;
 }
 
-function AttendanceButtons({ client, attendance, reload, compact = false }: { client: SupabaseClient; attendance?: Row; reload: () => void; compact?: boolean }) {
+function AttendanceButtons({ client, attendance, breaks = [], reload, compact = false }: { client: SupabaseClient; attendance?: Row; breaks?: Row[]; reload: () => void; compact?: boolean }) {
   const [busy, setBusy] = useState(false);
-  async function action(name: "clock_in" | "clock_out") {
+  const activeBreak = breaks.find((item) => !item.ended_at);
+  async function action(name: "clock_in" | "clock_out" | "start_break" | "end_break") {
     if (name === "clock_out" && !confirm("Clock out now? Your server timestamp will be recorded.")) return;
     setBusy(true); const { error } = await client.rpc(name); setBusy(false);
-    if (error) toast.error(error.message); else { toast.success(name === "clock_in" ? "You’re clocked in" : "You’re clocked out"); reload(); }
+    if (error) toast.error(error.message); else { toast.success(({ clock_in: "You’re clocked in", clock_out: "You’re clocked out", start_break: "Break started", end_break: "Break ended" } as Record<string, string>)[name]); reload(); }
   }
-  return <div className={`clock-actions ${compact ? "compact" : ""}`}>{!attendance && <button className="button success" disabled={busy} onClick={() => action("clock_in")}>{busy ? <Loader2 className="spin" /> : <Clock3 />} Clock in</button>}{attendance?.state === "working" && <button className="button danger" disabled={busy} onClick={() => action("clock_out")}>{busy ? <Loader2 className="spin" /> : <LogOut />} Clock out</button>}{attendance?.state === "checked_out" && <span className="complete-pill"><CheckCircle2 /> Shift completed</span>}</div>;
+  return <div className={`clock-actions ${compact ? "compact" : ""}`}>{!attendance && <button className="button success" disabled={busy} onClick={() => action("clock_in")}>{busy ? <Loader2 className="spin" /> : <Clock3 />} Clock in</button>}{attendance?.state === "working" && !activeBreak && <button className="button break" disabled={busy} onClick={() => action("start_break")}><Coffee size={17} /> Start break</button>}{attendance?.state === "working" && activeBreak && <button className="button break active" disabled={busy} onClick={() => action("end_break")}><Coffee size={17} /> End break</button>}{attendance?.state === "working" && <button className="button danger" disabled={busy || Boolean(activeBreak)} title={activeBreak ? "End your break before clocking out" : undefined} onClick={() => action("clock_out")}>{busy ? <Loader2 className="spin" /> : <LogOut />} Clock out</button>}{attendance?.state === "checked_out" && <span className="complete-pill"><CheckCircle2 /> Shift completed</span>}</div>;
 }
 
-function CreateTaskModal({ client, employees, onClose, onSaved }: { client: SupabaseClient; employees: Row[]; onClose: () => void; onSaved: () => void }) {
+function CreateTaskModal({ client, employees, templates, onClose, onSaved }: { client: SupabaseClient; employees: Row[]; templates: Row[]; onClose: () => void; onSaved: () => void }) {
   const activeEmployees = employees.filter((employee) => employee.role === "employee" && employee.status === "active");
   const [selected, setSelected] = useState<string[]>([]); const [files, setFiles] = useState<File[]>([]); const [busy, setBusy] = useState(false);
+  const [templateId, setTemplateId] = useState("");
+  const [saveTemplate, setSaveTemplate] = useState(false);
+  const [draft, setDraft] = useState(() => ({ title: "", description: "", instructions: "", acceptance_criteria: "", priority: "medium", deadline: toDateTimeInput(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()), checklist: "" }));
+
+  function applyTemplate(id: string) {
+    setTemplateId(id);
+    const template = templates.find((item) => item.id === id);
+    if (!template) return;
+    setDraft({ title: template.title, description: template.description, instructions: template.instructions ?? "", acceptance_criteria: template.acceptance_criteria ?? "", priority: template.priority, deadline: toDateTimeInput(new Date(Date.now() + Number(template.default_due_hours ?? 24) * 60 * 60 * 1000).toISOString()), checklist: (template.checklist ?? []).join("\n") });
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!selected.length) return toast.error("Select at least one employee");
     if (!validateFiles(files, 25)) return;
-    setBusy(true); const form = new FormData(event.currentTarget);
-    const { data: task, error } = await client.from("tasks").insert({ title: form.get("title"), description: form.get("description"), instructions: form.get("instructions") || null, acceptance_criteria: form.get("criteria") || null, priority: form.get("priority"), deadline: new Date(`${String(form.get("deadline"))}:00+05:00`).toISOString() }).select().single();
+    const checklist = draft.checklist.split("\n").map((item) => item.trim()).filter(Boolean);
+    if (checklist.some((item) => item.length > 240)) return toast.error("Checklist items must be 240 characters or less");
+    setBusy(true);
+    const deadline = new Date(`${draft.deadline}:00+05:00`).toISOString();
+    const { data: task, error } = await client.from("tasks").insert({ title: draft.title.trim(), description: draft.description.trim(), instructions: draft.instructions.trim() || null, acceptance_criteria: draft.acceptance_criteria.trim() || null, priority: draft.priority, deadline }).select().single();
     if (error) { setBusy(false); return toast.error(error.message); }
+    if (checklist.length) {
+      const { error: checklistError } = await client.from("task_checklist_items").insert(checklist.map((label, position) => ({ task_id: task.id, label, position })));
+      if (checklistError) { setBusy(false); return toast.error(checklistError.message); }
+    }
     const { error: assignmentError } = await client.from("task_assignments").insert(selected.map((employee_id) => ({ task_id: task.id, employee_id })));
     if (assignmentError) { setBusy(false); return toast.error(assignmentError.message); }
+    if (saveTemplate) {
+      const defaultDueHours = Math.min(8760, Math.max(1, Math.round((new Date(deadline).getTime() - Date.now()) / 3600000)));
+      const { error: templateError } = await client.from("task_templates").insert({ title: draft.title.trim(), description: draft.description.trim(), instructions: draft.instructions.trim() || null, acceptance_criteria: draft.acceptance_criteria.trim() || null, priority: draft.priority, default_due_hours: defaultDueHours, checklist });
+      if (templateError) toast.error(`Task created, but playbook was not saved: ${templateError.message}`);
+    }
     for (const file of files) {
       const path = `${task.id}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
       const upload = await client.storage.from("task-references").upload(path, file);
@@ -482,24 +525,28 @@ function CreateTaskModal({ client, employees, onClose, onSaved }: { client: Supa
     }
     setBusy(false); toast.success(`Task assigned to ${selected.length} employee${selected.length === 1 ? "" : "s"}`); onSaved();
   }
-  return <Modal title="Create & assign task" eyebrow="NEW WORK ORDER" onClose={onClose} wide><form onSubmit={submit} className="form-grid"><label className="field span-2"><span>Task title</span><input name="title" required minLength={3} placeholder="e.g. Reconcile weekly carrier invoices" /></label><label className="field span-2"><span>Description</span><textarea name="description" required rows={4} placeholder="Describe the expected outcome and relevant context." /></label><label className="field span-2"><span>Instructions</span><textarea name="instructions" rows={3} placeholder="Add steps, systems, or reference details." /></label><label className="field span-2"><span>Acceptance criteria</span><textarea name="criteria" rows={3} placeholder="Define what done looks like." /></label><label className="field"><span>Priority</span><select name="priority" defaultValue="medium"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="field"><span>Deadline</span><input name="deadline" type="datetime-local" required /></label><div className="field span-2"><span>Assign employees</span><div className="employee-picker">{activeEmployees.map((employee) => <label key={employee.user_id}><input type="checkbox" checked={selected.includes(employee.user_id)} onChange={(e) => setSelected(e.target.checked ? [...selected, employee.user_id] : selected.filter((id) => id !== employee.user_id))} /><Avatar name={employee.full_name} small /><span><b>{employee.full_name}</b><small>{employee.job_title}</small></span></label>)}{!activeEmployees.length && <p>No active employees are available.</p>}</div></div><FilePicker files={files} setFiles={setFiles} label="Reference files" hint="PDF, Office files, images, MP4, or ZIP · 25 MB each" /><div className="modal-actions span-2"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? <Loader2 className="spin" /> : <Plus />} Create task</button></div></form></Modal>;
+  return <Modal title="Create & assign task" eyebrow="NEW WORK ORDER" onClose={onClose} wide><form onSubmit={submit} className="form-grid">{templates.length > 0 && <label className="field span-2 playbook-field"><span><BookTemplate size={15} /> Start from a playbook</span><select value={templateId} onChange={(e) => applyTemplate(e.target.value)}><option value="">Blank task</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.title}</option>)}</select><small>Prefills the task; you can edit every field before assigning.</small></label>}<label className="field span-2"><span>Task title</span><input required minLength={3} placeholder="e.g. Reconcile weekly carrier invoices" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label><label className="field span-2"><span>Description</span><textarea required rows={4} placeholder="Describe the expected outcome and relevant context." value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label><label className="field span-2"><span>Instructions</span><textarea rows={3} placeholder="Add steps, systems, or reference details." value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} /></label><label className="field span-2"><span>Acceptance criteria</span><textarea rows={3} placeholder="Define what done looks like." value={draft.acceptance_criteria} onChange={(e) => setDraft({ ...draft, acceptance_criteria: e.target.value })} /></label><label className="field span-2"><span>Checklist</span><textarea rows={4} placeholder={"One verifiable step per line\nConfirm bill of lading\nAttach signed delivery receipt"} value={draft.checklist} onChange={(e) => setDraft({ ...draft, checklist: e.target.value })} /><small>Each assignee receives an independent checklist.</small></label><label className="field"><span>Priority</span><select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="field"><span>Deadline</span><input type="datetime-local" required value={draft.deadline} onChange={(e) => setDraft({ ...draft, deadline: e.target.value })} /></label><div className="field span-2"><span>Assign employees</span><div className="employee-picker">{activeEmployees.map((employee) => <label key={employee.user_id}><input type="checkbox" checked={selected.includes(employee.user_id)} onChange={(e) => setSelected(e.target.checked ? [...selected, employee.user_id] : selected.filter((id) => id !== employee.user_id))} /><Avatar name={employee.full_name} small /><span><b>{employee.full_name}</b><small>{employee.job_title}</small></span></label>)}{!activeEmployees.length && <p>No active employees are available.</p>}</div></div><FilePicker files={files} setFiles={setFiles} label="Reference files" hint="PDF, Office files, images, MP4, or ZIP · 25 MB each" /><label className="check-field span-2"><input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} /><span><b>Save as a reusable playbook</b><small>Store this structure for future logistics work orders.</small></span></label><div className="modal-actions span-2"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? <Loader2 className="spin" /> : <Plus />} Create task</button></div></form></Modal>;
 }
 
-function TaskDetailModal({ client, session, assignment, isAdmin, submissions, onClose, onSaved }: { client: SupabaseClient; session: Session; assignment: Row; isAdmin: boolean; submissions: Row[]; onClose: () => void; onSaved: () => void }) {
+function TaskDetailModal({ client, session, assignment, isAdmin, checklistState, submissions, onClose, onRefresh, onSaved }: { client: SupabaseClient; session: Session; assignment: Row; isAdmin: boolean; checklistState: Row[]; submissions: Row[]; onClose: () => void; onRefresh: () => void; onSaved: () => void }) {
   const task = assignment.tasks;
+  const checklistItems = [...(task.task_checklist_items ?? [])].sort((a: Row, b: Row) => a.position - b.position);
   const [progress, setProgress] = useState(assignment.progress_percent ?? 0);
   const [comment, setComment] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [editing, setEditing] = useState(false);
+  const [localChecklist, setLocalChecklist] = useState(checklistState);
   const [draft, setDraft] = useState({ title: task.title, description: task.description, instructions: task.instructions ?? "", acceptance_criteria: task.acceptance_criteria ?? "", priority: task.priority, deadline: toDateTimeInput(task.deadline) });
   async function updateProgress() { setBusy(true); const { error } = await client.rpc("update_task_progress", { p_assignment_id: assignment.id, p_status: progress > 0 ? "in_progress" : "todo", p_progress: progress, p_comment: comment || null }); setBusy(false); if (error) toast.error(error.message); else { toast.success("Progress updated"); onSaved(); } }
+  async function toggleChecklist(itemId: string, complete: boolean) { setBusy(true); const { error } = await client.rpc("set_checklist_item", { p_assignment_id: assignment.id, p_checklist_item_id: itemId, p_complete: complete }); setBusy(false); if (error) toast.error(error.message); else { setLocalChecklist((items) => items.map((item) => item.checklist_item_id === itemId ? { ...item, completed_at: complete ? new Date().toISOString() : null } : item)); toast.success(complete ? "Step completed" : "Step reopened"); onRefresh(); } }
   async function submitWork() { if (!comment.trim()) return toast.error("Add a submission note"); if (!files.length) return toast.error("Attach at least one completed-work file"); if (!validateFiles(files, 100)) return; setBusy(true); const { data: submission, error } = await client.rpc("submit_task", { p_assignment_id: assignment.id, p_comment: comment }); if (error) { setBusy(false); return toast.error(error.message); } for (const file of files) { const path = `${session.user.id}/${task.id}/${submission.id}/${crypto.randomUUID()}-${safeFileName(file.name)}`; const upload = await client.storage.from("task-submissions").upload(path, file); if (upload.error) { toast.error(`Upload failed: ${file.name}`); continue; } await client.from("submission_attachments").insert({ submission_id: submission.id, storage_path: path, file_name: file.name, file_size: file.size, mime_type: file.type || "application/octet-stream", uploaded_by: session.user.id }); } setBusy(false); toast.success("Task submitted for manager review"); onSaved(); }
   async function review(submissionId: string, decision: "approved" | "rejected" | "revision_requested") { if (!feedback.trim()) return toast.error("Add review feedback"); if (!confirm(decision === "approved" ? "Approve this task as completed?" : "Return this task to the employee for revision?")) return; setBusy(true); const { error } = await client.rpc("review_submission", { p_submission_id: submissionId, p_decision: decision, p_feedback: feedback }); setBusy(false); if (error) toast.error(error.message); else { toast.success(decision === "approved" ? "Task approved" : "Task returned for revision"); onSaved(); } }
   async function saveTask() { if (!draft.title.trim() || !draft.description.trim() || !draft.deadline) return toast.error("Title, description, and deadline are required"); setBusy(true); const { error } = await client.from("tasks").update({ title: draft.title.trim(), description: draft.description.trim(), instructions: draft.instructions.trim() || null, acceptance_criteria: draft.acceptance_criteria.trim() || null, priority: draft.priority, deadline: new Date(`${draft.deadline}:00+05:00`).toISOString() }).eq("id", task.id); setBusy(false); if (error) toast.error(error.message); else { toast.success("Task details updated"); onSaved(); } }
   return <Modal title={task.title} eyebrow={`${task.priority.toUpperCase()} PRIORITY`} onClose={onClose} wide><div className="task-detail"><div className="task-meta"><Badge value={assignment.status} /><span><CalendarClock size={16} /> Due {formatDateTime(task.deadline)}</span>{isAdmin && <span><Users size={16} /> {assignment.profiles?.full_name}</span>}{isAdmin && !editing && <button className="button secondary small" onClick={() => setEditing(true)}>Edit task</button>}</div>
       {editing ? <div className="task-action-panel"><div className="form-grid"><label className="field span-2"><span>Title</span><input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label><label className="field span-2"><span>Description</span><textarea rows={4} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label><label className="field span-2"><span>Instructions</span><textarea rows={3} value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} /></label><label className="field span-2"><span>Acceptance criteria</span><textarea rows={3} value={draft.acceptance_criteria} onChange={(e) => setDraft({ ...draft, acceptance_criteria: e.target.value })} /></label><label className="field"><span>Priority</span><select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label className="field"><span>Deadline</span><input type="datetime-local" value={draft.deadline} onChange={(e) => setDraft({ ...draft, deadline: e.target.value })} /></label></div><div className="modal-actions"><button className="button secondary" onClick={() => setEditing(false)}>Cancel</button><button className="button primary" disabled={busy} onClick={saveTask}>Save task</button></div></div> : <><p className="task-description">{task.description}</p>{task.instructions && <DetailBlock title="Instructions" text={task.instructions} />}{task.acceptance_criteria && <DetailBlock title="Acceptance criteria" text={task.acceptance_criteria} />}</>}
+      {checklistItems.length > 0 && <div className="task-checklist"><div className="checklist-heading"><div><h4>Completion checklist</h4><span>{localChecklist.filter((item) => item.completed_at).length} of {checklistItems.length} complete</span></div><b>{Math.round(localChecklist.filter((item) => item.completed_at).length / checklistItems.length * 100)}%</b></div>{checklistItems.map((item: Row) => { const state = localChecklist.find((entry) => entry.checklist_item_id === item.id); const complete = Boolean(state?.completed_at); return <button key={item.id} className={complete ? "complete" : ""} disabled={isAdmin || busy || ["submitted","completed"].includes(assignment.status)} onClick={() => toggleChecklist(item.id, !complete)}><span>{complete && <Check size={15} />}</span><b>{item.label}</b>{isAdmin && <small>{complete ? "Done" : "Open"}</small>}</button>; })}</div>}
       {task.task_attachments?.length > 0 && <div><h4>Reference files</h4><div className="file-list">{task.task_attachments.map((file: Row) => <FileLink key={file.id} file={file} bucket="task-references" client={client} />)}</div></div>}
       {!isAdmin && !["submitted","completed"].includes(assignment.status) && <div className="task-action-panel"><h4>Update your work</h4><label className="field"><span>Progress: {progress}%</span><input type="range" min="0" max="99" value={progress} onChange={(e) => setProgress(Number(e.target.value))} /></label><label className="field"><span>Work note</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} placeholder="Explain what you completed or any blockers." /></label><FilePicker files={files} setFiles={setFiles} label="Completed work" hint="Multiple files allowed · up to 100 MB each" /><div className="modal-actions"><button className="button secondary" onClick={updateProgress} disabled={busy}>Save progress</button><button className="button primary" onClick={submitWork} disabled={busy}><Upload size={17} /> Submit for review</button></div></div>}
       {assignment.last_manager_feedback && <div className="feedback-box"><MessageSquareText /><div><b>Manager feedback</b><p>{assignment.last_manager_feedback}</p></div></div>}
@@ -526,13 +573,28 @@ function CorrectionRequests({ rows, client, reload }: { rows: Row[]; client: Sup
   return <div className="request-list">{pending.map((request) => <div key={request.id}><div><b>{request.profiles?.full_name}</b><span>{request.work_date} · requested {formatTime(request.requested_clock_in)} – {formatTime(request.requested_clock_out)}</span><p>{request.reason}</p></div><div><button className="button danger-outline small" onClick={() => decide(request.id, false)}>Reject</button><button className="button success small" onClick={() => decide(request.id, true)}>Approve</button></div></div>)}</div>;
 }
 
+function WorkloadStrip({ assignments, employees }: { assignments: Row[]; employees: Row[] }) {
+  const workload = employees.filter((employee) => employee.role === "employee" && employee.status === "active").map((employee) => {
+    const active = assignments.filter((item) => item.employee_id === employee.user_id && item.status !== "completed");
+    const urgent = active.filter((item) => item.tasks?.priority === "urgent" || (item.tasks?.deadline && new Date(item.tasks.deadline) < new Date())).length;
+    return { employee, active: active.length, urgent };
+  }).sort((a, b) => b.active - a.active).slice(0, 8);
+  const max = Math.max(...workload.map((item) => item.active), 1);
+  return <section className="card workload-card"><div className="workload-heading"><div><p>CAPACITY CONTEXT</p><h3>Active workload by employee</h3></div><span>Planning signal only · not a performance score</span></div><div className="workload-grid">{workload.map(({ employee, active, urgent }) => <div className="workload-person" key={employee.user_id}><div className="person-cell"><Avatar name={employee.full_name} small /><div><b>{employee.full_name}</b><span>{active} active · {urgent} urgent/overdue</span></div></div><div className="workload-track"><i style={{ width: `${active / max * 100}%` }} /></div></div>)}{!workload.length && <EmptyState icon={Users} title="No workload yet" text="Active assignments appear here after employees receive tasks." />}</div></section>;
+}
+
+function TaskBoard({ rows, isAdmin, onOpen }: { rows: Row[]; isAdmin: boolean; onOpen: (row: Row) => void }) {
+  const columns: [string, string][] = [["todo", "To do"], ["in_progress", "In progress"], ["submitted", "Review"], ["completed", "Completed"]];
+  return <div className="task-board">{columns.map(([key, label]) => { const items = rows.filter((item) => item.status === key); return <section className={`board-column ${key}`} key={key}><header><span>{label}</span><b>{items.length}</b></header><div>{items.map((assignment) => <button className="board-card" key={assignment.id} onClick={() => onOpen(assignment)}><span className={`priority-pin ${assignment.tasks?.priority}`} /><div className="board-card-title"><b>{assignment.tasks?.title}</b><Badge value={assignment.tasks?.priority} /></div>{isAdmin && <span className="board-assignee"><Avatar name={assignment.profiles?.full_name ?? "Employee"} small /> {assignment.profiles?.full_name}</span>}<span className={assignment.status !== "completed" && new Date(assignment.tasks?.deadline) < new Date() ? "overdue-text" : ""}><CalendarClock size={14} /> {formatDateTime(assignment.tasks?.deadline)}</span><div className="progress-cell"><div><i style={{ width: `${assignment.progress_percent}%` }} /></div><span>{assignment.progress_percent}%</span></div></button>)}{!items.length && <div className="board-empty">No items</div>}</div></section>; })}</div>;
+}
+
 function TaskTable({ rows, isAdmin, onOpen }: { rows: Row[]; isAdmin: boolean; onOpen: (row: Row) => void }) {
   return <div className="table-scroll"><table><thead><tr><th>Task</th>{isAdmin && <th>Assignee</th>}<th>Priority</th><th>Deadline</th><th>Progress</th><th>Status</th><th /></tr></thead><tbody>{rows.map((assignment) => <tr key={assignment.id}><td><b>{assignment.tasks?.title}</b><span className="cell-subtext">Assigned {formatDateTime(assignment.created_at)}</span></td>{isAdmin && <td>{assignment.profiles?.full_name}</td>}<td><Badge value={assignment.tasks?.priority} /></td><td className={assignment.status !== "completed" && new Date(assignment.tasks?.deadline) < new Date() ? "overdue-text" : ""}>{formatDateTime(assignment.tasks?.deadline)}</td><td><div className="progress-cell"><div><i style={{ width: `${assignment.progress_percent}%` }} /></div><span>{assignment.progress_percent}%</span></div></td><td><Badge value={assignment.status} /></td><td><button className="button text" onClick={() => onOpen(assignment)}>Open</button></td></tr>)}</tbody></table>{!rows.length && <EmptyState icon={ClipboardCheck} title="No tasks match" text="Adjust your filters or create a new assignment." />}</div>;
 }
 
-function AttendanceTable({ rows, employees, compact = false }: { rows: Row[]; employees: Row[]; compact?: boolean }) {
+function AttendanceTable({ rows, employees, breaks = [], compact = false }: { rows: Row[]; employees: Row[]; breaks?: Row[]; compact?: boolean }) {
   const displayRows = compact ? rows.slice(0, 6) : rows;
-  return <div className="table-scroll"><table><thead><tr>{employees.length > 1 && <th>Employee</th>}<th>Date</th><th>Clock in</th><th>Clock out</th><th>Duration</th><th>Status</th></tr></thead><tbody>{displayRows.map((record) => { const employee = record.profiles ?? employees.find((item) => item.user_id === record.employee_id); return <tr key={record.id}>{employees.length > 1 && <td><div className="person-cell"><Avatar name={employee?.full_name ?? "Employee"} small /><div><b>{employee?.full_name}</b><span>{employee?.job_title}</span></div></div></td>}<td>{record.work_date}</td><td>{formatTime(record.clock_in)}</td><td>{formatTime(record.clock_out)}</td><td>{formatDuration(record.total_minutes)}</td><td>{record.state === "working" ? <Badge value="working" /> : record.late_minutes > 0 ? <Badge value={`late ${record.late_minutes}m`} /> : <Badge value="on time" />}</td></tr>; })}</tbody></table>{!displayRows.length && <EmptyState icon={CalendarClock} title="No attendance records" text="Records appear after the first server-verified clock-in." />}</div>;
+  return <div className="table-scroll"><table><thead><tr>{employees.length > 1 && <th>Employee</th>}<th>Date</th><th>Clock in</th><th>Clock out</th><th>Breaks</th><th>Net time</th><th>Status</th></tr></thead><tbody>{displayRows.map((record) => { const employee = record.profiles ?? employees.find((item) => item.user_id === record.employee_id); const recordBreaks = breaks.filter((item) => item.attendance_id === record.id); const activeBreak = recordBreaks.some((item) => !item.ended_at); return <tr key={record.id}>{employees.length > 1 && <td><div className="person-cell"><Avatar name={employee?.full_name ?? "Employee"} small /><div><b>{employee?.full_name}</b><span>{employee?.job_title}</span></div></div></td>}<td>{record.work_date}</td><td>{formatTime(record.clock_in)}</td><td>{formatTime(record.clock_out)}</td><td>{activeBreak ? <Badge value="on break" /> : `${record.break_minutes ?? 0}m`}</td><td>{formatDuration(record.total_minutes)}</td><td>{record.state === "working" ? <Badge value="working" /> : record.late_minutes > 0 ? <Badge value={`late ${record.late_minutes}m`} /> : <Badge value="on time" />}</td></tr>; })}</tbody></table>{!displayRows.length && <EmptyState icon={CalendarClock} title="No attendance records" text="Records appear after the first server-verified clock-in." />}</div>;
 }
 
 function ExportButtons({ rows, filename }: { rows: Row[]; filename: string }) {
@@ -565,7 +627,7 @@ function NotAllowed() { return <EmptyState icon={ShieldCheck} title="Manager acc
 function PageSkeleton() { return <div className="page-skeleton"><div /><div className="skeleton-grid"><i /><i /><i /><i /></div><section /><section /></div>; }
 function FullScreenLoader({ label }: { label: string }) { return <main className="fullscreen-loader"><div className="brand-mark large"><Truck /></div><Loader2 className="spin" /><p>{label}</p></main>; }
 function AccountIssue({ error, onSignOut }: { error: string; onSignOut: () => void }) { return <main className="account-issue"><div className="card"><AlertTriangle /><h1>Account access unavailable</h1><p>{error}</p><button className="button primary" onClick={onSignOut}>Return to sign in</button></div></main>; }
-function SetupRequired() { return <main className="setup-page"><section><div className="brand-mark large"><Truck /></div><p className="overline">FLEETOPS WORKFORCE</p><h1>Connect your secure database</h1><p>The application is deployed successfully and is waiting for its Supabase environment variables. Follow the README setup steps, then redeploy.</p><div className="code-list"><code>SUPABASE_URL</code><code>SUPABASE_ANON_KEY</code><code>SUPABASE_SERVICE_ROLE_KEY</code></div></section></main>; }
+function SetupRequired() { const steps = [{ number: "01", title: "Create the data layer", text: "Create a Supabase project and apply both SQL migrations in order." }, { number: "02", title: "Add secure environment keys", text: "Add the project URL and publishable key. Store the secret key only in the hosting secret store." }, { number: "03", title: "Bootstrap the first manager", text: "Create one confirmed Auth user, then promote that profile with the README SQL snippet." }, { number: "04", title: "Verify before inviting staff", text: "Test employee isolation, private downloads, attendance, and the full submit-review workflow." }]; return <main className="setup-page"><section className="setup-shell"><div className="setup-intro"><div className="brand-mark large"><Truck /></div><p className="overline">FLEETOPS WORKFORCE</p><h1>Your operations hub is ready to connect.</h1><p>The application is deployed. Complete these production-readiness steps to activate secure employee access.</p><div className="code-list"><code>SUPABASE_URL</code><code>SUPABASE_PUBLISHABLE_KEY</code><code>SUPABASE_SECRET_KEY</code></div></div><div className="setup-steps">{steps.map((step) => <div key={step.number}><span>{step.number}</span><div><b>{step.title}</b><p>{step.text}</p></div></div>)}</div><div className="setup-note"><ShieldCheck size={18} /><span>Legacy `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` names remain supported. Never expose a secret or service-role key to browser code.</span></div></section></main>; }
 
 function TodayCard({ attendance }: { attendance?: Row }) { return <div className="today-card"><div className="time-row"><span><small>Clock in</small><b>{formatTime(attendance?.clock_in)}</b></span><span><small>Clock out</small><b>{formatTime(attendance?.clock_out)}</b></span></div><div className="duration-ring"><div><strong>{attendance?.total_minutes ? formatDuration(attendance.total_minutes) : attendance?.state === "working" ? "Active" : "0h 0m"}</strong><span>Total today</span></div></div>{Boolean(attendance?.late_minutes && attendance.late_minutes > 0) && <p className="warning-text"><AlertTriangle size={15} /> Arrived {attendance?.late_minutes} minutes after grace period</p>}</div>; }
 function TaskFlow({ rows }: { rows: Row[] }) { const items: [string,string][] = [["todo","To do"],["in_progress","In progress"],["submitted","Review"],["completed","Completed"]]; const total = Math.max(rows.length, 1); return <div className="task-flow">{items.map(([key,label]) => { const count = rows.filter((row) => row.status === key).length; return <div key={key}><span><b>{label}</b><em>{count}</em></span><div><i className={key} style={{ width: `${count / total * 100}%` }} /></div></div>; })}</div>; }
@@ -573,7 +635,7 @@ function TaskList({ rows }: { rows: Row[]; employee?: boolean }) { return <div c
 function AttentionList({ overdue, submissions, corrections }: { overdue: Row[]; submissions: Row[]; corrections: Row[] }) { const items = [{ label: "Overdue assignments", count: overdue.length, icon: AlertTriangle, tone: "red" }, { label: "Submissions waiting", count: submissions.length, icon: ClipboardCheck, tone: "violet" }, { label: "Attendance corrections", count: corrections.length, icon: TimerReset, tone: "amber" }]; return <div className="attention-list">{items.map((item) => <div key={item.label}><span className={`stat-icon ${item.tone}`}><item.icon size={19} /></span><div><b>{item.label}</b><span>{item.count ? `${item.count} item${item.count === 1 ? "" : "s"} need review` : "Nothing pending"}</span></div><strong>{item.count}</strong></div>)}</div>; }
 function FeedbackList({ assignments }: { assignments: Row[] }) { const rows = assignments.filter((row) => row.last_manager_feedback).slice(0, 4); return <div className="feedback-list">{rows.map((row) => <div key={row.id}><MessageSquareText /><div><b>{row.tasks?.title}</b><p>{row.last_manager_feedback}</p></div><Badge value={row.status} /></div>)}{!rows.length && <EmptyState icon={MessageSquareText} title="No recent feedback" text="Manager comments appear here after review." />}</div>; }
 
-function attendanceExportRows(rows: Row[], employees: Row[]) { return rows.map((record) => { const employee = record.profiles ?? employees.find((item) => item.user_id === record.employee_id); return { Employee: employee?.full_name ?? "", "Job title": employee?.job_title ?? "", Date: record.work_date, "Clock in": formatDateTime(record.clock_in), "Clock out": formatDateTime(record.clock_out), "Total minutes": record.total_minutes ?? "", "Late minutes": record.late_minutes, "Missing clock-out": !record.clock_out ? "Yes" : "No" }; }); }
+function attendanceExportRows(rows: Row[], employees: Row[]) { return rows.map((record) => { const employee = record.profiles ?? employees.find((item) => item.user_id === record.employee_id); return { Employee: employee?.full_name ?? "", "Job title": employee?.job_title ?? "", Date: record.work_date, "Clock in": formatDateTime(record.clock_in), "Clock out": formatDateTime(record.clock_out), "Break minutes": record.break_minutes ?? 0, "Net working minutes": record.total_minutes ?? "", "Late minutes": record.late_minutes, "Missing clock-out": !record.clock_out ? "Yes" : "No" }; }); }
 function priorityRank(value?: string) { return ({ low: 1, medium: 2, high: 3, urgent: 4 } as Record<string, number>)[value ?? ""] ?? 0; }
 function validateFiles(files: File[], maxMb: number) { for (const file of files) { const extension = file.name.split(".").pop()?.toLowerCase() ?? ""; if (!FILE_EXTENSIONS.includes(extension)) { toast.error(`${file.name}: unsupported file type`); return false; } if (file.size > maxMb * 1024 * 1024) { toast.error(`${file.name}: exceeds ${maxMb} MB`); return false; } } return true; }
 function toDateTimeInput(value: string) { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TASHKENT_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(value)).reduce<Record<string, string>>((result, part) => { result[part.type] = part.value; return result; }, {}); return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`; }

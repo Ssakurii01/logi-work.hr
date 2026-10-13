@@ -7,13 +7,16 @@ A secure, responsive employee management, attendance, task tracking, submission 
 - Manager and employee portals with permission-aware navigation
 - Admin employee provisioning, profile editing, scheduling, and deactivation
 - Server-timestamped clock-in/clock-out in `Asia/Tashkent`
+- Server-timestamped meal/rest breaks with net working-time calculation
 - Duplicate clock-in and invalid clock-out prevention inside PostgreSQL functions
 - Attendance history, late-arrival calculation, corrections, CSV, and real XLSX exports
 - Multi-employee tasks, deadlines, priorities, reference files, progress, and comments
+- Reusable manager playbooks, per-assignee checklists, list/board views, and workload context
 - Versioned task submissions with multiple private attachments and manager reviews
 - Approve, reject, and request-revision workflows with preserved history
 - Realtime assignment and notification refreshes
 - Transparent reports that explicitly require human review
+- Period-correct report denominators and a visible calculation methodology
 - Audit log, indexes, constraints, private buckets, and complete RLS policies
 - Polished desktop, tablet, and mobile interface with empty/loading/error states
 
@@ -22,7 +25,7 @@ No production employee demo records are seeded. The migration creates only neutr
 ## 1. Configure Supabase
 
 1. Create a new Supabase project and save the database password in a password manager.
-2. In **SQL Editor**, run the complete migration at `supabase/migrations/202610130001_fleetops.sql`. With the Supabase CLI, the equivalent is:
+2. In **SQL Editor**, run the migrations in filename order: `202610130001_fleetops.sql`, then `202610130002_benchmark_improvements.sql`. With the Supabase CLI, the equivalent is:
 
    ```bash
    supabase login
@@ -72,13 +75,14 @@ Copy `.env.example` to `.env.local` for development:
 
 ```env
 SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_YOUR_KEY
+SUPABASE_SECRET_KEY=sb_secret_YOUR_KEY
 ```
 
-- `SUPABASE_URL` and `SUPABASE_ANON_KEY` are passed to the authenticated browser client. The anon/publishable key is safe to expose because authorization is enforced by RLS.
-- `SUPABASE_SERVICE_ROLE_KEY` is used only by `/api/admin/employees` after the caller's JWT and admin profile are verified. It must remain a server secret.
-- Never prefix the service-role key with `NEXT_PUBLIC_`, commit it, log it, or paste it into frontend code.
+- `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are passed to the authenticated browser client. The publishable key is designed for public components because authorization is enforced by RLS.
+- `SUPABASE_SECRET_KEY` is used only by `/api/admin/employees` after the caller's JWT and active admin profile are verified. It bypasses RLS and must remain a server secret.
+- Legacy `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` names remain supported for existing projects.
+- Never prefix the secret/service-role key with `NEXT_PUBLIC_`, commit it, log it, or paste it into frontend code.
 
 ## 4. Run locally
 
@@ -100,7 +104,7 @@ npm run lint
 
 ### ChatGPT Sites (the configured deployment)
 
-This repository contains `.openai/hosting.json` for the registered private Site. In the Sites project environment, add the three variables above and mark `SUPABASE_SERVICE_ROLE_KEY` as a secret. Save a new version and deploy it. A redeploy is required after environment changes so the Worker receives the new environment revision.
+This repository contains `.openai/hosting.json` for the registered private Site. In the Sites project environment, add the three variables above and mark `SUPABASE_SECRET_KEY` as a secret. Save a new version and deploy it. A redeploy is required after environment changes so the Worker receives the new environment revision.
 
 The initial Site is owner-private. Change its audience only after Supabase Auth and RLS have been configured and tested for every intended user. Hosting access is an outer gate; Supabase authentication and RLS remain the application authorization layer.
 
@@ -130,7 +134,7 @@ Run this only in the intended production project. The function de-duplicates rem
 ## Security and operating notes
 
 - RLS is enabled on every application table. Employees can read only their profile, attendance, assigned tasks, submissions, reviews, and notifications.
-- Attendance rows cannot be inserted or edited directly by employees. `clock_in()` and `clock_out()` use `statement_timestamp()` on the database server.
+- Attendance and break rows cannot be inserted or edited directly by employees. `clock_in()`, `clock_out()`, `start_break()`, and `end_break()` use server-side timestamps.
 - Manager-only operations are checked in PostgreSQL or in a server route that verifies the caller with `auth.getUser()` and confirms an active admin profile.
 - Storage buckets are private. Downloads use five-minute signed URLs after Storage RLS authorization.
 - Allowed uploads are PDF, DOC/DOCX, XLS/XLSX, JPG/PNG, MP4, and ZIP. Reference files are limited to 25 MB; submission files to 100 MB; avatars to 5 MB.

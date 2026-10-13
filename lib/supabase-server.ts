@@ -1,13 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-function env(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing server environment variable: ${name}`);
+function env(...names: string[]) {
+  const value = names.map((name) => process.env[name]).find(Boolean);
+  if (!value) throw new Error(`Missing server environment variable: ${names.join(" or ")}`);
   return value;
 }
 
 export function createServiceClient(): SupabaseClient {
-  return createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), {
+  return createClient(env("SUPABASE_URL"), env("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
