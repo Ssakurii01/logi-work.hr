@@ -6,7 +6,7 @@ import { createClient, type Session, type SupabaseClient } from "@supabase/supab
 import {
   Activity, AlertTriangle, ArrowDownToLine, Bell, BriefcaseBusiness, Building2,
   BookTemplate, CalendarClock, Check, CheckCircle2, ChevronDown, CircleGauge, ClipboardCheck, Clock3,
-  Coffee, Columns3, FileText, Filter, LayoutDashboard, List, Loader2, LogOut, Menu, MessageSquareText,
+  Coffee, Columns3, Copy, FileText, Filter, LayoutDashboard, List, Loader2, LogOut, Menu, MessageSquareText,
   PackageCheck, Paperclip, Plus, RefreshCw, Search, Settings,
   ShieldCheck, TimerReset, Truck, Upload, UserPlus, Users, X, XCircle,
 } from "lucide-react";
@@ -627,7 +627,36 @@ function NotAllowed() { return <EmptyState icon={ShieldCheck} title="Manager acc
 function PageSkeleton() { return <div className="page-skeleton"><div /><div className="skeleton-grid"><i /><i /><i /><i /></div><section /><section /></div>; }
 function FullScreenLoader({ label }: { label: string }) { return <main className="fullscreen-loader"><div className="brand-mark large"><Truck /></div><Loader2 className="spin" /><p>{label}</p></main>; }
 function AccountIssue({ error, onSignOut }: { error: string; onSignOut: () => void }) { return <main className="account-issue"><div className="card"><AlertTriangle /><h1>Account access unavailable</h1><p>{error}</p><button className="button primary" onClick={onSignOut}>Return to sign in</button></div></main>; }
-function SetupRequired() { const steps = [{ number: "01", title: "Create the data layer", text: "Create a Supabase project and apply both SQL migrations in order." }, { number: "02", title: "Add secure environment keys", text: "Add the project URL and publishable key. Store the secret key only in the hosting secret store." }, { number: "03", title: "Bootstrap the first manager", text: "Create one confirmed Auth user, then promote that profile with the README SQL snippet." }, { number: "04", title: "Verify before inviting staff", text: "Test employee isolation, private downloads, attendance, and the full submit-review workflow." }]; return <main className="setup-page"><section className="setup-shell"><div className="setup-intro"><div className="brand-mark large"><Truck /></div><p className="overline">FLEETOPS WORKFORCE</p><h1>Your operations hub is ready to connect.</h1><p>The application is deployed. Complete these production-readiness steps to activate secure employee access.</p><div className="code-list"><code>SUPABASE_URL</code><code>SUPABASE_PUBLISHABLE_KEY</code><code>SUPABASE_SECRET_KEY</code></div></div><div className="setup-steps">{steps.map((step) => <div key={step.number}><span>{step.number}</span><div><b>{step.title}</b><p>{step.text}</p></div></div>)}</div><div className="setup-note"><ShieldCheck size={18} /><span>Legacy `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` names remain supported. Never expose a secret or service-role key to browser code.</span></div></section></main>; }
+function SetupRequired() {
+  const [copied, setCopied] = useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
+  const keys = ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY"];
+  const steps = [
+    { number: "01", title: "Create the data layer", text: "Create a Supabase project and apply both SQL migrations in order." },
+    { number: "02", title: "Add secure environment keys", text: "Add the project URL and publishable key. Store the secret key only in the hosting secret store." },
+    { number: "03", title: "Bootstrap the first manager", text: "Create one confirmed Auth user, then promote that profile with the README SQL snippet." },
+    { number: "04", title: "Verify before inviting staff", text: "Test employee isolation, private downloads, attendance, and the full submit-review workflow." },
+  ];
+  const checklist = `FleetOps activation checklist
+1. Run supabase/migrations/202610130001_fleetops.sql.
+2. Run supabase/migrations/202610130002_benchmark_improvements.sql.
+3. Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY to the Site environment.
+4. Add SUPABASE_SECRET_KEY only to the Site secret store.
+5. Create the first confirmed Supabase Auth user and promote it using the SQL in README.md.
+6. Redeploy and test employee isolation, attendance, uploads, and manager review.`;
+
+  async function copyText(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(label);
+      window.setTimeout(() => setCopied(""), 1800);
+    } catch {
+      setCopied("copy-error");
+    }
+  }
+
+  return <main className="setup-page"><section className="setup-shell"><div className="setup-intro"><div className="brand-mark large"><Truck /></div><p className="overline">FLEETOPS WORKFORCE</p><h1>Your operations hub is ready to connect.</h1><p>The application is deployed, but its secure database connection has not been configured yet.</p><div className="setup-blocked"><AlertTriangle size={19} /><span><b>Portal controls are locked</b> Login, attendance, tasks, and reports become available after Supabase is connected.</span></div><p className="setup-key-label">Required Site environment names · click to copy</p><div className="code-list">{keys.map((key) => <button type="button" className="setup-key" key={key} onClick={() => copyText(key, key)} aria-label={`Copy ${key}`}><code>{key}</code>{copied === key ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}</button>)}</div><div className="setup-actions"><button type="button" className="button primary" aria-expanded={guideOpen} onClick={() => setGuideOpen((open) => !open)}><ClipboardCheck size={17} />{guideOpen ? "Hide activation guide" : "Show activation guide"}</button><button type="button" className="button secondary" onClick={() => copyText(checklist, "checklist")}><Copy size={17} />{copied === "checklist" ? "Checklist copied" : "Copy checklist"}</button></div>{copied === "copy-error" && <p className="setup-copy-error" role="alert">Clipboard access was blocked. Select and copy the text manually.</p>}</div><div className="setup-steps">{steps.map((step) => <div key={step.number}><span>{step.number}</span><div><b>{step.title}</b><p>{step.text}</p></div></div>)}</div>{guideOpen && <section className="setup-guide" aria-label="Activation guide"><div><span>1</span><p><b>Apply the database migrations</b>Run <code>202610130001_fleetops.sql</code>, then <code>202610130002_benchmark_improvements.sql</code> in the Supabase SQL editor.</p></div><div><span>2</span><p><b>Configure the deployed Site</b>Add the URL and publishable key as environment variables. Add the secret key only as a server-side secret, never as a public variable.</p></div><div><span>3</span><p><b>Create the first manager</b>Create a confirmed Auth user, then use the first-admin SQL in <code>README.md</code> to promote that exact email.</p></div><div><span>4</span><p><b>Redeploy and verify</b>The next deployment will show the sign-in page. Complete the security checklist before inviting employees.</p></div></section>}<div className="setup-note"><ShieldCheck size={18} /><span>Legacy <code>SUPABASE_ANON_KEY</code> and <code>SUPABASE_SERVICE_ROLE_KEY</code> names remain supported. Never expose a secret or service-role key to browser code.</span></div></section></main>;
+}
 
 function TodayCard({ attendance }: { attendance?: Row }) { return <div className="today-card"><div className="time-row"><span><small>Clock in</small><b>{formatTime(attendance?.clock_in)}</b></span><span><small>Clock out</small><b>{formatTime(attendance?.clock_out)}</b></span></div><div className="duration-ring"><div><strong>{attendance?.total_minutes ? formatDuration(attendance.total_minutes) : attendance?.state === "working" ? "Active" : "0h 0m"}</strong><span>Total today</span></div></div>{Boolean(attendance?.late_minutes && attendance.late_minutes > 0) && <p className="warning-text"><AlertTriangle size={15} /> Arrived {attendance?.late_minutes} minutes after grace period</p>}</div>; }
 function TaskFlow({ rows }: { rows: Row[] }) { const items: [string,string][] = [["todo","To do"],["in_progress","In progress"],["submitted","Review"],["completed","Completed"]]; const total = Math.max(rows.length, 1); return <div className="task-flow">{items.map(([key,label]) => { const count = rows.filter((row) => row.status === key).length; return <div key={key}><span><b>{label}</b><em>{count}</em></span><div><i className={key} style={{ width: `${count / total * 100}%` }} /></div></div>; })}</div>; }
