@@ -275,6 +275,9 @@ begin
   if not exists(select 1 from public.profiles where user_id = v_user and status = 'active') then
     raise exception 'Account is inactive or not provisioned';
   end if;
+  if exists(select 1 from public.attendance_records where employee_id = v_user and clock_out is null) then
+    raise exception 'You already have an active shift. Clock out before starting another shift';
+  end if;
   if exists(select 1 from public.attendance_records where employee_id = v_user and work_date = v_date) then
     raise exception 'You have already clocked in today';
   end if;
@@ -308,7 +311,11 @@ begin
   if v_user is null then raise exception 'Authentication required'; end if;
   update public.attendance_records
   set clock_out = v_now, state = 'checked_out'
-  where employee_id = v_user and work_date = v_date and clock_out is null
+  where id = (
+    select id from public.attendance_records
+    where employee_id = v_user and clock_out is null
+    order by clock_in desc limit 1
+  )
   returning * into v_record;
   if v_record.id is null then raise exception 'No active clock-in found for today'; end if;
   insert into public.audit_logs(actor_id, action, entity_type, entity_id) values(v_user, 'clock_out', 'attendance', v_record.id::text);
