@@ -543,9 +543,9 @@ alter publication supabase_realtime add table public.task_assignments;
 
 -- Safe starting records only (not fake employees).
 insert into public.departments(name, description) values
-  ('Operations', 'Logistics operations and coordination'),
-  ('Dispatch', 'Shipment dispatch and tracking'),
-  ('Human Resources', 'People operations and compliance')
+  ('Human Resources', 'People operations, employee support, and policy administration'),
+  ('Recruiting', 'Candidate sourcing, screening, and hiring coordination'),
+  ('HR Compliance', 'Workforce documentation, audits, and policy compliance')
 on conflict (name) do nothing;
 
 insert into public.work_schedules(name, timezone, start_time, end_time, grace_minutes)

@@ -10,5 +10,6 @@ This local backlog records the research, product decision, acceptance criteria, 
 | [FLEET-104](FLEET-104-reporting-integrity.md) | Period-correct, explainable performance reports | Done |
 | [FLEET-105](FLEET-105-deployment-readiness.md) | Clear production setup and security readiness | Done |
 | [FLEET-106](FLEET-106-setup-controls.md) | Functional setup controls and explicit configuration gate | Done |
+| [FLEET-107](FLEET-107-hr-recruiting-scope.md) | HR and recruiter product scope with no driver-management ambiguity | Done |
 
 Tickets deliberately avoid copying a competitor wholesale. Each takes a proven interaction pattern and adapts it to FleetOps' logistics workflow, Supabase authorization model, and employee-privacy requirements.

@@ -1,10 +1,10 @@
-# FleetOps Workforce
+# FleetOps HR Workforce
 
-A secure, responsive employee management, attendance, task tracking, submission review, and reporting application for logistics teams. The frontend is Next-compatible Vinext/React; Supabase provides PostgreSQL, Auth, Row Level Security, private Storage, and Realtime.
+A secure, responsive workforce management, attendance, task tracking, work-evidence review, and reporting application for HR staff and recruiters at an American trucking and logistics company. It is intentionally **not** a driver, vehicle, dispatch, route, or fleet-maintenance system. The frontend is Next-compatible Vinext/React; Supabase provides PostgreSQL, Auth, Row Level Security, private Storage, and Realtime.
 
 ## What is included
 
-- Manager and employee portals with permission-aware navigation
+- Manager and HR/recruiter portals with permission-aware navigation
 - Admin employee provisioning, profile editing, scheduling, and deactivation
 - Server-timestamped clock-in/clock-out in `Asia/Tashkent`
 - Server-timestamped meal/rest breaks with net working-time calculation
@@ -20,12 +20,12 @@ A secure, responsive employee management, attendance, task tracking, submission 
 - Audit log, indexes, constraints, private buckets, and complete RLS policies
 - Polished desktop, tablet, and mobile interface with empty/loading/error states
 
-No production employee demo records are seeded. The migration creates only neutral departments and one standard schedule.
+No production employee demo records are seeded. The migrations create only HR/recruiting departments and one standard office schedule.
 
 ## 1. Configure Supabase
 
 1. Create a new Supabase project and save the database password in a password manager.
-2. In **SQL Editor**, run the migrations in filename order: `202610130001_fleetops.sql`, then `202610130002_benchmark_improvements.sql`. With the Supabase CLI, the equivalent is:
+2. In **SQL Editor**, run every file in `supabase/migrations` in filename order, currently `202610130001_fleetops.sql`, `202610130002_benchmark_improvements.sql`, and `202610190003_hr_recruiting_scope.sql`. With the Supabase CLI, the equivalent is:
 
    ```bash
    supabase login
@@ -67,7 +67,7 @@ The first administrator is intentionally bootstrapped out-of-band so nobody can 
    where role = 'admin';
    ```
 
-After signing in, that administrator can create employee accounts from **Employees → Add employee**. Employee passwords are handled only by Supabase Auth and never stored in application tables.
+After signing in, that administrator can create HR staff and recruiter accounts from **Employees → Add team member**. Passwords are handled only by Supabase Auth and never stored in application tables.
 
 ## 3. Environment variables
 
